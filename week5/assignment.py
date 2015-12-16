@@ -93,7 +93,8 @@ def main(argv):
     #possible labels
     labels = list(set(Ytest))
     print(classification_report(Ytest, Yguess))
-
+    for y in Yguess:
+            print(y)
     
 
 
