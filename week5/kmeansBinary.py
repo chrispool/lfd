@@ -74,8 +74,10 @@ class KmeansClassifier:
 		# 	print(p,t)
 
 
-		print(adjusted_rand_score(labels_true, labels_pred))
-		print(homogeneity_completeness_v_measure(labels_true, labels_pred))
+		print("Homogeneity: %0.3f" % homogeneity_score(labels_true, labels_pred))
+		print("Completeness: %0.3f" % completeness_score(labels_true, labels_pred))
+		print("V-measure: %0.3f" % v_measure_score(labels_true, labels_pred))
+		print("Adjusted Rand-Index: %.3f" % adjusted_rand_score(labels_true, labels_pred))
 		
 
 		#print(confusion_matrix(labels_true,labels_pred))

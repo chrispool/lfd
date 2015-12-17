@@ -1,12 +1,14 @@
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.pipeline import Pipeline
 from sklearn import cluster
-from sklearn.metrics import classification_report, accuracy_score, homogeneity_score,confusion_matrix,homogeneity_completeness_v_measure,adjusted_rand_score
+from sklearn.metrics import completeness_score, v_measure_score, classification_report, accuracy_score, homogeneity_score,confusion_matrix,homogeneity_completeness_v_measure,adjusted_rand_score
 import sys
 from nltk.stem.porter import PorterStemmer
 from nltk.stem import WordNetLemmatizer
 from nltk.stem.snowball import SnowballStemmer
 import numpy as np
+from collections import defaultdict, Counter
+
 class KmeansClassifier:
 	def __init__(self):
 		pass
@@ -16,9 +18,8 @@ class KmeansClassifier:
 	    labels = []
 	    bigrams = False
 	    #stemmer = PorterStemmer()
-	    stemmer = SnowballStemmer("english", ignore_stopwords=True)
+	    stemmer = SnowballStemmer("english", ignore_stopwords=False)
 	    wordnet_lemmatizer = WordNetLemmatizer()
-	    self.labels = {'health':0 , 'camera':1, 'software':2, 'books':3, 'music':4, 'dvd':5}
 	    with open(corpus_file, encoding='utf-8') as f:
 	        for line in f:
 	            tokens = line.strip().split()
@@ -29,7 +30,7 @@ class KmeansClassifier:
 	                documents.append(list(zip(t, t[1:])))
 	            else:
 	                documents.append(t)
-	            labels.append( self.labels[tokens[0]] )
+	            labels.append( tokens[0] )
 	    
 	    return documents, labels
     
@@ -62,19 +63,32 @@ class KmeansClassifier:
 		vec = TfidfVectorizer(preprocessor = self.identity, tokenizer = self.identity,sublinear_tf=True)
 		
 		km = Pipeline( [('vec', vec),
-                            ('cls', cluster.KMeans(n_clusters=6, n_init=1, verbose=1))] )
+                            ('cls', cluster.KMeans(n_clusters=6, n_init=10, verbose=1))] )
 		
 		labels_pred = km.fit_predict(X,Y)
 		labels_true = Y
 
+		c = defaultdict(list)
+		#calculate confusion matrix
+		for pred,true in zip(labels_pred,labels_true):
+			c[pred].append(true)
+
+		label = {}
+		for key in c:
+			count = Counter(c[key])
+			label[key] = count.most_common(1)[0][0]
+
+		labels_pred = [label[l] for l in labels_pred]
+		labels = list(set(label.values()))
+		print(labels)
 		
 
-		classes = np.unique(labels_true)
-		clusters = np.unique(labels_pred)
-
-		print(adjusted_rand_score(Y,km.steps[1][1].labels_))
-		print(homogeneity_completeness_v_measure(Y,km.steps[1][1].labels_))
-		print(confusion_matrix(labels_true,labels_pred))
+		print("Homogeneity: %0.3f" % homogeneity_score(labels_true, labels_pred))
+		print("Completeness: %0.3f" % completeness_score(labels_true, labels_pred))
+		print("V-measure: %0.3f" % v_measure_score(labels_true, labels_pred))
+		print("Adjusted Rand-Index: %.3f" % adjusted_rand_score(labels_true, labels_pred))
+		print(confusion_matrix(labels_true, labels_pred, labels=labels))
+	
 K = KmeansClassifier()
 K.train(sys.argv)
 
