@@ -1,4 +1,4 @@
-import os, re
+import os, re, sys
 from xml.dom import minidom
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer,TfidfTransformer
 from sklearn.feature_extraction import DictVectorizer
@@ -8,25 +8,90 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.pipeline import FeatureUnion
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-
+from collections import Counter,defaultdict
 from transformers import *
 
-'''Trains all classifiers and pickles the classifier for use in webpage'''
 
 
 
 class Trainer:
-	def __init__(self):
-		#self.trainDutch()
-		self.trainEnglish()
-		#self.trainItalian()
-		#self.trainSpanish()
+	def __init__(self, argv):
+		if len(argv) == 3:
+			#read trainingData, list with 3 values, X, Y and DOCID
+			self.englishTrainData = self.readData(argv[1],'english')
+			self.dutchTrainData = self.readData(argv[1],'dutch')
+			self.italianTrainData = self.readData(argv[1],'italian')
+			self.spanishTrainData = self.readData(argv[1],'spanish')
+			self.allTrainData = list(zip(self.englishTrainData, self.dutchTrainData, self.italianTrainData, self.spanishTrainData))
+			
+			#read all test data
+			self.englishTestData = self.readData(argv[2],'english')
+			self.dutchTestData = self.readData(argv[2],'dutch')
+			self.italianTestData = self.readData(argv[2],'italian')
+			self.spanishTestData = self.readData(argv[2],'spanish')
+			self.allTestData = list(zip(self.englishTestData, self.dutchTestData, self.italianTestData, self.spanishTestData))
+
+			self.sexClassifier()
+		else:
+			exit("usage trainer.py <trainset> <testset>")
+
+	
+	
+	def sexClassifier(self):
+		'''classify sex'''
+		#train classsifier on all languages using only style features to be used as feature
+		sexClassifier = self.generalSexClassifier()
+		self.evaluation(self.trainEnglishSexClassifier(sexClassifier), 'english')
 
 
-	def readTrainingData(self, lang):
-		X, Y = [], []
-		if os.path.isdir("training/" + lang):
-			indir = "training/" + lang
+	def generalSexClassifier(self):
+		#get correct labels from dictionary in trainY and testY
+		trainX = self.allTrainData[0][0]
+		trainY = self.getYlabels(self.allTrainData[1][0], 'sex')
+		testX = self.allTrainData[0][0]
+		testY = self.getYlabels(self.allTestData[1][0], 'sex')
+		
+
+		combined_features = FeatureUnion([("caps", CountCaps()),				
+										("wordCaps", CountWordCaps())])
+		
+		X_features = combined_features.fit(trainX, trainY).transform(trainX)
+		classifier = svm.SVC(kernel='linear')
+		pipeline = Pipeline([("features", combined_features), ("classifier", classifier)])
+		pipeline.fit(trainX, trainY)
+		
+		predictY = pipeline.predict(testX)
+
+		return pipeline
+
+
+	def trainEnglishSexClassifier(self, generalSexClassifier):
+		#get correct labels from dictionary in trainY and testY
+		trainX = self.englishTrainData[0]
+		trainY = self.getYlabels(self.englishTrainData[1], 'sex')
+		testX = self.englishTrainData[0]
+		testY = self.getYlabels(self.englishTrainData[1], 'sex')
+		
+
+		combined_features = FeatureUnion([("tfidf", TfidfVectorizer(max_features=1000)),
+										("ngrams", TfidfVectorizer(ngram_range=(3, 3), analyzer="char", min_df=4, max_features=1000)), 
+										("counts", CountVectorizer(max_features=1000)),
+										("generalSexClassifier", Classifier(generalSexClassifier)),
+										])
+		
+		X_features = combined_features.fit(trainX, trainY).transform(trainX)
+		classifier = svm.SVC(kernel='linear')
+		pipeline = Pipeline([("features", combined_features), ("classifier", classifier)])
+		pipeline.fit(trainX, trainY)
+		
+		predictY = pipeline.predict(testX)
+		return predictY
+
+
+	def readData(self,folder, lang):
+		X, Y, DOCID = [], [], []
+		if os.path.isdir(folder + "/" + lang):
+			indir = folder + "/" + lang
 			
 			#read truth file
 			truthDict = {}
@@ -38,20 +103,13 @@ class Trainer:
 			for root, dirs, filenames in os.walk(indir):
 				for f in filenames:
 					if f.endswith('xml'):
-						x, y = self.parseXML(indir + '/' + f, truthDict)
+						x, y, docid = self.parseXML(indir + '/' + f, truthDict)
 						X.extend(x)
 						Y.extend(y)
+						DOCID.extend(docid)
 
-		
-		
-		#split in train/test
-		split_point = int(0.75*len(X))
-		trainX = X[:split_point]
-		trainY = Y[:split_point]
-		testX = X[split_point:]
-		testY = Y[split_point:]
 
-		return trainX, trainY, testX, testY
+		return X,Y,DOCID
 					
 
 	def parseXML(self,doc,truthDict):
@@ -61,10 +119,14 @@ class Trainer:
 		itemlist = xmldoc.getElementsByTagName('document')
 		x = []
 		y = []
+		docid = []
 		for s in itemlist:
 			x.append(self.processTweet(s.firstChild.nodeValue.strip()))
 			y.append(truthDict[xmlID])
-		return x,y
+			docid.append(xmlID)
+		
+		
+		return x,y,docid
 
 
 	def processTweet(self, tweet):
@@ -85,17 +147,48 @@ class Trainer:
 
 	def trainDutch(self):
 		print("Dutch classifier")
-		trainX,trainY,testX,testY = self.readTrainingData('dutch')
-		self.trainSexClassifier(trainX,trainY,testX,testY)
+		trainX,trainY,testX,testY, docidX, docidY = self.readTrainingData('dutch')
+		prediction = self.trainSexClassifier(trainX,trainY,testX,testY)
+		self.evaluation(docidY,prediction, testY)
 		print()
 
 	def trainEnglish(self):
 		print("English classifier")
-		trainX,trainY,testX,testY = self.readTrainingData('english')
-		self.trainSexClassifier(trainX,trainY,testX,testY)
-		self.trainAgeClassifier(trainX,trainY,testX,testY)
+		trainX,trainY,testX,testY, docidX, docidY = self.readTrainingData('english')
+		prediction = self.trainSexClassifier(trainX,trainY,testX,testY)
+		self.evaluation(docidY,prediction, testY)
+
+
+		#self.trainAgeClassifier(trainX,trainY,testX,testY)
 		print()
 	
+	def evaluation(self,prediction, language):
+		
+		if language == 'english':
+			testY = self.getYlabels(self.englishTestData[1], 'sex')
+		
+		print("Classification report {} per tweet".format(language))
+		print(classification_report(prediction, testY))
+		counter = defaultdict(list)
+		count = Counter()
+		goldLabels = {}
+		for i,p,y in zip(self.englishTestData[2],prediction,testY):
+			counter[i].append(p)
+			goldLabels[i] = y
+		
+		keys, predict, gold = [], [], []
+		for key in counter:
+			mc = Counter(counter[key])
+			label = mc.most_common(1)[0][0]
+			keys.append(key)
+			predict.append(label)
+			gold.append(goldLabels[key])
+			print(key, label, goldLabels[key])
+
+		print("Classification report {} per author".format(language))
+		print(classification_report(gold, predict))
+		
+
 	def trainItalian(self):
 		print("Italian classifier")
 		trainX,trainY,testX,testY = self.readTrainingData('italian')
@@ -116,32 +209,50 @@ class Trainer:
 		testY = self.getYlabels(testY, 'sex')
 		
 
-		vec = TfidfVectorizer()
-		pipeline = Pipeline([
-			('features', FeatureUnion([
-				('ngram_tf_idf', Pipeline([
-					('counts', CountVectorizer()),
-					('tf_idf', TfidfTransformer())
-				])),
-				('tweetstats', Pipeline([
-					('stats', TextStats()),  # returns a list of dicts
-                	('vect', DictVectorizer()),  # list of dicts -> feature matrix
-				])),
-				 # returns a list of dicts
-                  # list of dicts -> feature matrix,
-			])),
-			('classifier', MultinomialNB())
-		])
+		combined_features = FeatureUnion([("tfidf", TfidfVectorizer(max_features=1000)),
+										("ngrams", TfidfVectorizer(ngram_range=(3, 3), analyzer="char", min_df=4, max_features=1000)), 
+										("counts", CountVectorizer(max_features=1000)),
+										("caps", CountCaps()),
+										("wordCaps", CountWordCaps())])
+		
+		X_features = combined_features.fit(trainX, trainY).transform(trainX)
+		classifier = svm.SVC(kernel='linear')
+		pipeline = Pipeline([("features", combined_features), ("classifier", classifier)])
+		pipeline.fit(trainX, trainY)
+		
+		predictY = pipeline.predict(testX)
+		return predictY
+		# pipeline = Pipeline([
+		# 	('features', FeatureUnion([
+		# 		('ngram_tf_idf', Pipeline([
+		# 			('counts', CountVectorizer()),
+		# 			('tf_idf', TfidfTransformer())
+		# 		])),
+		# 		('tweetstats', Pipeline([
+		# 			('stats', TextStats()),  # returns a list of dicts
+  #               	('vect', DictVectorizer()),  # list of dicts -> feature matrix
+		# 		])),
+		# 		('ngrams', )
+		# 		 # returns a list of dicts
+  #                 # list of dicts -> feature matrix,
+		# 	])),
+
+		# 	('classifier', )
+		# ])
 
 
 		#classifier = Pipeline( [('vec', vec), ('cls', MultinomialNB())] )
 		#classifier = Pipeline( [('vec', vec), ('cls', SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42))] )
-		pipeline.fit(trainX, trainY)
-		predictY = pipeline.predict(testX)
-		print(accuracy_score(testY, predictY))
-		print(classification_report(testY, predictY))
-	
+		
+			
 
+	def show_most_informative_features(feature_names, clf, n=20):
+		
+		coefs_with_fns = sorted(zip(clf.coef_[0], feature_names))
+		top = zip(coefs_with_fns[:n], coefs_with_fns[:-(n + 1):-1])
+		for (coef_1, fn_1), (coef_2, fn_2) in top:
+			print("{:4} {:4} {:4} {:4}".format(coef_1, fn_1, coef_2, fn_2))
+			
 
 	def trainAgeClassifier(self,trainX,trainY,testX,testY):
 		#get correct labels from dictionary in trainY and testY
@@ -169,12 +280,14 @@ class Trainer:
 		#classifier = Pipeline( [('vec', vec), ('cls', MultinomialNB())] )
 		#classifier = Pipeline( [('vec', vec), ('cls', SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42))] )
 		pipeline.fit(trainX, trainY)
+		
 		predictY = pipeline.predict(testX)
 		print(accuracy_score(testY, predictY))
 		print(classification_report(testY, predictY))
 
 
 	def getYlabels(self, y, value):
+		
 		return [row[value] for row in y]
 			
-t = Trainer()
+t = Trainer(sys.argv)
