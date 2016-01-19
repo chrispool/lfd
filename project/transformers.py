@@ -138,8 +138,6 @@ class English(BaseEstimator, TransformerMixin):
         
         return 0
 
-       
-
     def transform(self, texts):
         """ transform data
         :texts: The texts to count capital letters in

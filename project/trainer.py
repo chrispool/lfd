@@ -1,30 +1,23 @@
 import os, re, sys
 from xml.dom import minidom
-
 from sklearn.feature_extraction import DictVectorizer
-
-
 from sklearn.linear_model import SGDClassifier
-
-
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from collections import Counter,defaultdict
-
 from classifiers import AgeClassifiers,SexClassifiers
-
-
 
 class Trainer(AgeClassifiers, SexClassifiers):
 	def __init__(self, argv):
-		#seperate train and testset
+		
+		#seperate train and testset. In this modus the truth files will be written to the test directory
 		if len(argv) == 3:
 
 			self.TESTMODE = False
 			#read trainingData, list with 3 values, X, Y and DOCID
-			self.englishTrainData = self.readData(argv[1],'english', True)
-			self.dutchTrainData = self.readData(argv[1],'dutch',True)
-			self.italianTrainData = self.readData(argv[1],'italian',True)
-			self.spanishTrainData = self.readData(argv[1],'spanish',True)
+			self.englishTrainData = self.readData(argv[1],'english')
+			self.dutchTrainData = self.readData(argv[1],'dutch')
+			self.italianTrainData = self.readData(argv[1],'italian')
+			self.spanishTrainData = self.readData(argv[1],'spanish')
 			self.allTrainData = [i1+i2+i3+i4 for i1,i2,i3,i4 in zip(self.englishTrainData, self.dutchTrainData, self.italianTrainData, self.spanishTrainData)]
 			
 			#read all test data
@@ -35,8 +28,7 @@ class Trainer(AgeClassifiers, SexClassifiers):
 			self.allTestData = [i1+i2+i3+i4 for i1,i2,i3,i4 in zip(self.englishTestData, self.dutchTestData, self.italianTestData, self.spanishTestData)]
 
 			
-		
-		#only trainset, split the data in train and test
+		#only trainset, split the data in train and test. In this modus no thruth files will be written. 
 		elif len(argv) == 2:
 			
 			self.TESTMODE = True
@@ -70,16 +62,55 @@ class Trainer(AgeClassifiers, SexClassifiers):
 			exit("usage trainer.py <trainset> *<testset>")
 
 		print("Data loaded")
+
+
+		#dictoionary for final results
 		self.results = defaultdict(list)
-		#train and predict sex for each user, output is used for age classifier		
+
+		#train and predict gender for each user	
 		self.sexClassifier()
 		
+		#calculate overal accuracy and classification report for gender classification if there is a gold standard.
+		if self.TESTMODE:
+			pred, gold = [], []
+			for key in self.results:
+				pred.append(self.results[key][0][0])
+				gold.append(self.results[key][0][1])
+			print()
+			print("-----------------------{}-----------------------".format("Average"))
+			print("Per user")
+			print("-----------")
+			print()
+			print("Accuracy: {}".format(round(accuracy_score(gold, pred),2)))
+			print()
+			print(classification_report(gold,pred))
+
+
 		#train and predict age for each user, one of the features is the sex classifier			
 		self.ageClassifier()
 
+		#calculate overal accuracy and classification report for age classification if there is a gold standard.
+		if self.TESTMODE:
+			pred, gold = [], []
+			for key in self.results:
+				if key[0] == 'english' or key[0] == 'spanish':
+					pred.append(self.results[key][1][0])
+					gold.append(self.results[key][1][1])
+			print()
+			print("-----------------------{}-----------------------".format("Average"))
+			print("Per user")
+			print("-----------")
+			print()
+			print("Accuracy: {}".format(round(accuracy_score(gold, pred),2)))
+			print()
+			print(classification_report(gold,pred))
+
+
+		#write truth file
 		if self.TESTMODE == False:
 			self.writeTruthFiles(argv[2])
-		
+
+
 
 	def ageClassifier(self):
 		'''general function that coordinates the age classification'''
@@ -88,12 +119,13 @@ class Trainer(AgeClassifiers, SexClassifiers):
 		englishAgeClassifier = self.trainEnglishAgeClassifier()
 
 		print("Train Spanish classifier for age classification")
-		spanishAgeClassifier = self.trainSpanishAgeClassifier()
+		spanishAgeClassifier = self.trainSpanishAgeClassifier(self.spanishSexClassifier)
 		
-
+		#calculate evaluation
 		if self.TESTMODE:
 			self.evaluationAge(englishAgeClassifier.predict(self.englishTestData[0]), 'english')
 			self.evaluationAge(spanishAgeClassifier.predict(self.spanishTestData[0]), 'spanish')
+		#No gold label, calculate majority label for truth file
 		else:
 			self.calculateMajorityLabel(englishAgeClassifier.predict(self.englishTestData[0]), 'english')
 			self.calculateMajorityLabel(spanishAgeClassifier.predict(self.spanishTestData[0]), 'spanish')
@@ -103,16 +135,16 @@ class Trainer(AgeClassifiers, SexClassifiers):
 		'''general function that coordinates the sex classification'''
 
 		#train models for each language using the general sex classifier as feature		
-		print("Train English classifier for sex classification")
+		print("Train English classifier for gender classification")
 		self.englishSexClassifier = self.trainEnglishSexClassifier()
 		
-		print("Train Dutch classifier for sex classification")
+		print("Train Dutch classifier for gender classification")
 		dutchSexClassifier = self.trainDutchSexClassifier()
 		
-		print("Train Italian classifier for sex classification")
+		print("Train Italian classifier for gender classification")
 		italianSexClassifier = self.trainItalianSexClassifier()
 		
-		print("Train Spanish classifier for sex classification")
+		print("Train Spanish classifier for gender classification")
 		self.spanishSexClassifier = self.trainSpanishSexClassifier()
 		
 
@@ -127,6 +159,129 @@ class Trainer(AgeClassifiers, SexClassifiers):
 			self.calculateMajorityLabel(dutchSexClassifier.predict(self.dutchTestData[0]), 'dutch')
 			self.calculateMajorityLabel(italianSexClassifier.predict(self.italianTestData[0]), 'italian')
 			self.calculateMajorityLabel(self.spanishSexClassifier.predict(self.spanishTestData[0]), 'spanish')
+
+	def calculateMajorityLabel(self,prediction, language):
+		'''Function to calculate what the most frequent label is in a prediction and is used in truth.txt'''
+		if language == 'english':
+			results = zip(self.englishTestData[2],prediction)
+
+		elif language == 'dutch':
+			results = zip(self.dutchTestData[2],prediction)
+
+		elif language == 'italian':
+			results = zip(self.italianTestData[2],prediction)
+
+		elif language == 'spanish':
+			results = zip(self.spanishTestData[2],prediction)
+
+		predictions = defaultdict(list)
+		for user_id, prediction in results:
+			predictions[user_id].append(prediction)
+
+		for user in predictions:
+			self.results[(language, user)].append(Counter(predictions[user]).most_common(1)[0][0])
+
+	
+	def evaluationSex(self,prediction, language):
+		'''Evaluate gender classifier in case of gold labels available'''		
+		if language == 'english':
+			testY = self.getYlabels(self.englishTestData[1], 'sex')
+			results = zip(self.englishTestData[2],prediction,testY)
+
+		elif language == 'dutch':
+			testY = self.getYlabels(self.dutchTestData[1], 'sex')
+			results = zip(self.dutchTestData[2],prediction,testY)
+
+		elif language == 'italian':
+			testY = self.getYlabels(self.italianTestData[1], 'sex')
+			results = zip(self.italianTestData[2],prediction,testY)
+
+		elif language == 'spanish':
+			testY = self.getYlabels(self.spanishTestData[1], 'sex')
+			results = zip(self.spanishTestData[2],prediction,testY)
+		print()
+		print("-----------------------{}-----------------------".format(language))
+		print("Per tweet")
+		print()
+		print("-----------")
+		print("Accuracy: {}".format(round(accuracy_score(testY, prediction),2)))
+		print()
+		print(classification_report(testY,prediction))
+
+		counter = defaultdict(list)
+		count = Counter()
+		goldLabels = {}
+		for i,p,y in results:
+			counter[i].append(p)
+			goldLabels[i] = y
+		
+		keys, predict, gold = [], [], []
+		for key in counter:
+			mc = Counter(counter[key])
+			label = mc.most_common(1)[0][0]
+			keys.append(key)
+			predict.append(label)
+			gold.append(goldLabels[key])
+			self.results[(language, key)].append((label,goldLabels[key]))
+
+		print("Per user")
+		print("-----------")
+		print()
+		print("Accuracy: {}".format(round(accuracy_score(gold, predict),2)))
+		print()
+		print(classification_report(gold, predict))
+		print()
+		
+
+	def evaluationAge(self,prediction, language):
+	'''Evaluate age classifier in case of gold labels available'''		
+		if language == 'english':
+			testY = self.getYlabels(self.englishTestData[1], 'age')
+			results = zip(self.englishTestData[2],prediction,testY)
+
+		elif language == 'dutch':
+			testY = self.getYlabels(self.dutchTestData[1], 'age')
+			results = zip(self.dutchTestData[2],prediction,testY)
+
+		elif language == 'italian':
+			testY = self.getYlabels(self.italianTestData[1], 'age')
+			results = zip(self.italianTestData[2],prediction,testY)
+
+		elif language == 'spanish':
+			testY = self.getYlabels(self.spanishTestData[1], 'age')
+			results = zip(self.spanishTestData[2],prediction,testY)
+
+		print()
+		print("-----------------------{}-----------------------".format(language))
+		print("Per tweet")
+		print("-----------")
+		print()
+		print("Accuracy: {}".format(round(accuracy_score(testY, prediction),2)))
+		print()
+		print(classification_report(testY,prediction))
+		counter = defaultdict(list)
+		count = Counter()
+		goldLabels = {}
+		for i,p,y in results:
+			counter[i].append(p)
+			goldLabels[i] = y
+		
+		keys, predict, gold = [], [], []
+		for key in counter:
+			mc = Counter(counter[key])
+			label = mc.most_common(1)[0][0]
+			keys.append(key)
+			predict.append(label)
+			gold.append(goldLabels[key])
+			self.results[(language, key)].append((label,goldLabels[key]))
+		print("Per user")
+		print("-----------")
+		print()
+		print("Accuracy: {}".format(round(accuracy_score(gold, predict),2)))
+		print()
+		print(classification_report(gold, predict))
+		print()
+
 
 	'''Helper functions'''
 	def writeTruthFiles(self,outputFolder):
@@ -146,13 +301,15 @@ class Trainer(AgeClassifiers, SexClassifiers):
 
 
 	def writeTruthFile(self, language, folder, result):
+		'''Write truth file to disk'''
 		print("writing to file {}".format(folder + "/" + language + "/truth.txt"))
 		fobj = open(folder + "/" + language + "/truth.txt", 'w')
 		for user_id, gender, age in result:
-			fobj.write("{} {} {} \n".format(user_id, gender, age ))
+			fobj.write("{}:::{}:::{} \n".format(user_id, gender, age ))
 		fobj.close()
 
 	def readData(self,folder, lang, train=True):
+		'''Read all files in folder'''
 		X, Y, DOCID = [], [], []
 		if os.path.isdir(folder + "/" + lang):
 			indir = folder + "/" + lang
@@ -180,6 +337,7 @@ class Trainer(AgeClassifiers, SexClassifiers):
 					
 
 	def parseXML(self,doc,truthDict):
+		'''Parse XML and return list with tweets, labels and docids'''
 		xmldoc = minidom.parse(doc)
 		xmlID = doc.split("/")[-1][:-4]
 		
@@ -191,8 +349,6 @@ class Trainer(AgeClassifiers, SexClassifiers):
 			x.append(self.processTweet(s.firstChild.nodeValue.strip()))
 			y.append(truthDict[xmlID])
 			docid.append(xmlID)
-		
-		
 		return x,y,docid
 
 
@@ -200,6 +356,7 @@ class Trainer(AgeClassifiers, SexClassifiers):
 		return match.group(1)+match.group(1)
 
 	def processTweet(self, tweet):
+		'''Pre processing function'''
 		#Convert to lower case
 		tweet = tweet.lower()
 		#Convert www.* or https?://* to URL
@@ -221,111 +378,7 @@ class Trainer(AgeClassifiers, SexClassifiers):
 		return tweet
 
 
-	def calculateMajorityLabel(self,prediction, language):
-		if language == 'english':
-			results = zip(self.englishTestData[2],prediction)
-
-		elif language == 'dutch':
-			results = zip(self.dutchTestData[2],prediction)
-
-		elif language == 'italian':
-			results = zip(self.italianTestData[2],prediction)
-
-		elif language == 'spanish':
-			results = zip(self.spanishTestData[2],prediction)
-
-		
-		predictions = defaultdict(list)
-		for user_id, prediction in results:
-			predictions[user_id].append(prediction)
-
-		for user in predictions:
-			self.results[(language, user)].append(Counter(predictions[user]).most_common(1)[0][0])
-
-		
-			
-
-
 	
-	def evaluationSex(self,prediction, language):	
-		if language == 'english':
-			testY = self.getYlabels(self.englishTestData[1], 'sex')
-			results = zip(self.englishTestData[2],prediction,testY)
-
-		elif language == 'dutch':
-			testY = self.getYlabels(self.dutchTestData[1], 'sex')
-			results = zip(self.dutchTestData[2],prediction,testY)
-
-		elif language == 'italian':
-			testY = self.getYlabels(self.italianTestData[1], 'sex')
-			results = zip(self.italianTestData[2],prediction,testY)
-
-		elif language == 'spanish':
-			testY = self.getYlabels(self.spanishTestData[1], 'sex')
-			results = zip(self.spanishTestData[2],prediction,testY)
-
-		
-		print("Classification report {} per tweet".format(language))
-		print(classification_report(testY,prediction))
-		counter = defaultdict(list)
-		count = Counter()
-		goldLabels = {}
-		for i,p,y in results:
-			counter[i].append(p)
-			goldLabels[i] = y
-		
-		keys, predict, gold = [], [], []
-		for key in counter:
-			mc = Counter(counter[key])
-			label = mc.most_common(1)[0][0]
-			keys.append(key)
-			predict.append(label)
-			gold.append(goldLabels[key])
-			self.results[(language, key)].append((label,goldLabels[key]))
-			#print(key, label, goldLabels[key])
-
-		print("Classification report {} per author".format(language))
-		print(classification_report(gold, predict))
-		
-
-	def evaluationAge(self,prediction, language):	
-	
-		if language == 'english':
-			testY = self.getYlabels(self.englishTestData[1], 'age')
-			results = zip(self.englishTestData[2],prediction,testY)
-
-		elif language == 'dutch':
-			testY = self.getYlabels(self.dutchTestData[1], 'age')
-			results = zip(self.dutchTestData[2],prediction,testY)
-
-		elif language == 'italian':
-			testY = self.getYlabels(self.italianTestData[1], 'age')
-			results = zip(self.italianTestData[2],prediction,testY)
-
-		elif language == 'spanish':
-			testY = self.getYlabels(self.spanishTestData[1], 'age')
-			results = zip(self.spanishTestData[2],prediction,testY)
-
-		print("Classification report {} per tweet".format(language))
-		print(classification_report(testY,prediction))
-		counter = defaultdict(list)
-		count = Counter()
-		goldLabels = {}
-		for i,p,y in results:
-			counter[i].append(p)
-			goldLabels[i] = y
-		
-		keys, predict, gold = [], [], []
-		for key in counter:
-			mc = Counter(counter[key])
-			label = mc.most_common(1)[0][0]
-			keys.append(key)
-			predict.append(label)
-			gold.append(goldLabels[key])
-			self.results[(language, key)].append((label,goldLabels[key]))
-			#print(key, label, goldLabels[key])
-		print("Classification report {} per author".format(language))
-		print(classification_report(gold,predict))
 		
 
 

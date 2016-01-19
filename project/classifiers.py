@@ -10,7 +10,6 @@ from collections import Counter
 
 class SexClassifiers():
 	
-
 	def trainEnglishSexClassifier(self):
 		#get correct labels from dictionary in trainY and testY
 		trainX = self.englishTrainData[0]
@@ -26,15 +25,14 @@ class SexClassifiers():
 										#("countRepeatingLetters", RepeatingLetters()),
 										],transformer_weights={
 											'english': 1,
-											'tfidf': 2,
+											'tfidf': 3,
 											'ngrams': 2,
 											'hashtags': 1,
 											'mentions': 1,
 											'countRepeatingLetters' : 1
         								})
 
-		X_features = combined_features.fit(trainX, trainY).transform(trainX)
-		classifier = svm.LinearSVC()
+		classifier = svm.LinearSVC(C=1.0)
 		pipeline = Pipeline([("features", combined_features), ("classifier", classifier)])
 		pipeline.fit(trainX, trainY)
 
@@ -76,12 +74,12 @@ class SexClassifiers():
 		combined_features = FeatureUnion([("tfidf", TfidfVectorizer()),
 										("ngrams", TfidfVectorizer(ngram_range=(3, 3), analyzer="char")), 
 										("counts", CountVectorizer()),
-										#("generalSexClassifier", Classifier(generalSexClassifier)),
 										("latin", Latin()),	
 										],transformer_weights={
 											'latin': 1,
 											'tfidf': 2,
 											'ngrams': 2,
+											'counts': 1,
 
         								})
 		
@@ -102,11 +100,13 @@ class SexClassifiers():
 		combined_features = FeatureUnion([("tfidf", TfidfVectorizer()),
 										("ngrams", TfidfVectorizer(ngram_range=(3, 3), analyzer="char")), 
 										("counts", CountVectorizer()),
+										("latin", Latin()),	
 										],transformer_weights={
 											'latin': 1,
 											'tfidf': 2,
 											'counts': 1,
 											'ngrams': 2,
+
 
         								})
 		classifier = svm.LinearSVC()
@@ -138,7 +138,7 @@ class AgeClassifiers():
 
 	
 
-	def trainSpanishAgeClassifier(self):
+	def trainSpanishAgeClassifier(self,classifier):
 		#get correct labels from dictionary in trainY and testY
 		trainX = self.spanishTrainData[0]
 		trainY = self.getYlabels(self.spanishTrainData[1], 'age')
@@ -146,13 +146,16 @@ class AgeClassifiers():
 		
 
 
-		combined_features = FeatureUnion([("tfidf", TfidfVectorizer(sublinear_tf=True, max_df=0.05 )),
+		combined_features = FeatureUnion([("capitals", CountCaps()),
 										("repeatingLetters", RepeatingLetters()),
-										("countsWordCaps", CountWordCaps())
+										("countsWordCaps", CountWordCaps()),
+										("tfidf", TfidfVectorizer( )),
+										("latin", Latin()),
+										("classifier", Classifier(classifier))
 										])
 		
 		X_features = combined_features.fit(trainX, trainY).transform(trainX)
-		classifier = svm.SVC(kernel='rbf', C=1.0, gamma=0.9)
+		classifier = svm.SVC(kernel='linear')
 		pipeline = Pipeline([("features", combined_features), ("classifier", classifier)])
 		pipeline.fit(trainX, trainY)
 		
