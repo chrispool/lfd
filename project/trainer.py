@@ -234,7 +234,7 @@ class Trainer(AgeClassifiers, SexClassifiers):
 		
 
 	def evaluationAge(self,prediction, language):
-	'''Evaluate age classifier in case of gold labels available'''		
+		'''Evaluate age classifier in case of gold labels available'''		
 		if language == 'english':
 			testY = self.getYlabels(self.englishTestData[1], 'age')
 			results = zip(self.englishTestData[2],prediction,testY)
@@ -358,7 +358,7 @@ class Trainer(AgeClassifiers, SexClassifiers):
 	def processTweet(self, tweet):
 		'''Pre processing function'''
 		#Convert to lower case
-		tweet = tweet.lower()
+		#tweet = tweet.lower()
 		#Convert www.* or https?://* to URL
 		tweet = re.sub('((www\.[^\s]+)|(https?://[^\s]+))','URL',tweet)
 		#Convert @username to AT_USER

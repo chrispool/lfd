@@ -1,8 +1,6 @@
 from sklearn.base import BaseEstimator, TransformerMixin
 import nltk
 
-import numpy as np
-import pandas
 
 
 class SexClassifier(BaseEstimator,TransformerMixin):

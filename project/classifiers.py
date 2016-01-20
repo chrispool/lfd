@@ -22,7 +22,8 @@ class SexClassifiers():
 										("hashtags", CountHashtags()),
 										("mentions", CountMentions()),
 										("english", English()),
-										#("countRepeatingLetters", RepeatingLetters()),
+										("countRepeatingLetters", RepeatingLetters()),
+										("capitals", CountWordCaps()),
 										],transformer_weights={
 											'english': 1,
 											'tfidf': 3,
